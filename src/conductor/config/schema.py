@@ -458,7 +458,7 @@ class AgentDef(BaseModel):
     description: str | None = None
     """Human-readable description of agent's purpose."""
 
-    type: Literal["agent", "human_gate", "script", "workflow"] | None = None
+    type: Literal["agent", "human_gate", "script", "workflow", "terminate"] | None = None
     """Agent type. Defaults to 'agent' if not specified."""
 
     provider: Literal["copilot", "claude"] | None = None
@@ -671,6 +671,55 @@ class AgentDef(BaseModel):
           effort: high
     """
 
+    status: Literal["success", "failed"] | None = None
+    """Outcome status for ``type: terminate`` steps.
+
+    ``success`` ends the workflow cleanly (exit code 0, dashboard ✅,
+    ``workflow_completed`` event with ``is_explicit: true``). ``failed``
+    ends the workflow as an explicit error (non-zero exit code, dashboard
+    ❌, ``workflow_failed`` event with ``is_explicit: true``). Required
+    for ``type: terminate``; forbidden on all other step types.
+
+    Example YAML::
+
+        type: terminate
+        status: failed
+        reason: "Upstream service returned unprocessable data"
+    """
+
+    reason: str | None = None
+    """Termination reason for ``type: terminate`` steps (Jinja2-rendered).
+
+    Surfaced in the ``workflow_completed`` / ``workflow_failed`` event as
+    ``termination_reason`` and stored in the step's context entry. Required
+    for ``type: terminate``; forbidden on all other step types.
+
+    Supports Jinja2 templating against accumulated context.
+
+    Example YAML::
+
+        reason: "{{ precheck.output.reason }}"
+    """
+
+    output_template: dict[str, str] | None = None
+    """Optional final-output mapping for ``type: terminate`` steps.
+
+    When present, *replaces* the workflow-level ``output:`` mapping for
+    this termination path. Each value is a Jinja2 expression evaluated
+    against the accumulated context (including the terminate step's own
+    ``status`` / ``reason``). When omitted, the workflow-level ``output:``
+    mapping is rendered as usual.
+
+    Forbidden on all step types other than ``terminate``.
+
+    Example YAML::
+
+        output_template:
+          aborted: "true"
+          stage: precheck
+          reason: "{{ precheck.output.reason }}"
+    """
+
     @field_validator("timeout")
     @classmethod
     def validate_timeout(cls, v: int | None) -> int | None:
@@ -682,6 +731,17 @@ class AgentDef(BaseModel):
     @model_validator(mode="after")
     def validate_agent_type(self) -> AgentDef:
         """Ensure agent has required fields for its type."""
+        # Fields exclusive to ``type: terminate`` — reject if set on any
+        # other type. This is enforced before the per-type branches so the
+        # error message clearly names the conflict.
+        if self.type != "terminate":
+            for field_name in ("status", "reason", "output_template"):
+                if getattr(self, field_name) is not None:
+                    raise ValueError(
+                        f"'{self.type or 'agent'}' agents cannot have '{field_name}' "
+                        "(only 'terminate' agents support this field)"
+                    )
+
         if self.type == "human_gate":
             if not self.options:
                 raise ValueError("human_gate agents require 'options'")
@@ -758,6 +818,66 @@ class AgentDef(BaseModel):
                 raise ValueError("workflow agents cannot have 'dialog'")
             if self.timeout_seconds is not None:
                 raise ValueError("workflow agents cannot have 'timeout_seconds'")
+        elif self.type == "terminate":
+            # Required fields
+            if self.status is None:
+                raise ValueError(
+                    "terminate agents require 'status' (must be 'success' or 'failed')"
+                )
+            if not self.reason or not self.reason.strip():
+                raise ValueError("terminate agents require a non-empty 'reason'")
+            # Routing and per-step machinery are meaningless on a terminal
+            # step — the engine ends the workflow as soon as it dispatches.
+            if self.routes:
+                raise ValueError(
+                    "terminate agents cannot have 'routes' "
+                    "(reaching a terminate step ends the workflow immediately)"
+                )
+            if self.tools is not None:
+                raise ValueError("terminate agents cannot have 'tools'")
+            if self.output is not None:
+                raise ValueError(
+                    "terminate agents cannot have 'output' "
+                    "(use 'output_template' to override the workflow's final output)"
+                )
+            if self.prompt:
+                raise ValueError("terminate agents cannot have 'prompt'")
+            if self.model:
+                raise ValueError("terminate agents cannot have 'model'")
+            if self.provider:
+                raise ValueError("terminate agents cannot have 'provider'")
+            if self.system_prompt:
+                raise ValueError("terminate agents cannot have 'system_prompt'")
+            if self.command:
+                raise ValueError("terminate agents cannot have 'command'")
+            if self.args:
+                raise ValueError("terminate agents cannot have 'args'")
+            if self.env:
+                raise ValueError("terminate agents cannot have 'env'")
+            if self.working_dir:
+                raise ValueError("terminate agents cannot have 'working_dir'")
+            if self.timeout is not None:
+                raise ValueError("terminate agents cannot have 'timeout'")
+            if self.timeout_seconds is not None:
+                raise ValueError("terminate agents cannot have 'timeout_seconds'")
+            if self.max_session_seconds is not None:
+                raise ValueError("terminate agents cannot have 'max_session_seconds'")
+            if self.max_agent_iterations is not None:
+                raise ValueError("terminate agents cannot have 'max_agent_iterations'")
+            if self.max_depth is not None:
+                raise ValueError("terminate agents cannot have 'max_depth'")
+            if self.retry is not None:
+                raise ValueError("terminate agents cannot have 'retry'")
+            if self.dialog is not None:
+                raise ValueError("terminate agents cannot have 'dialog'")
+            if self.reasoning is not None:
+                raise ValueError("terminate agents cannot have 'reasoning'")
+            if self.workflow:
+                raise ValueError("terminate agents cannot have 'workflow'")
+            if self.input_mapping is not None:
+                raise ValueError("terminate agents cannot have 'input_mapping'")
+            if self.options:
+                raise ValueError("terminate agents cannot have 'options'")
         else:
             # Regular agent or human_gate — input_mapping is not valid
             if self.input_mapping is not None:
