@@ -20,6 +20,7 @@ Conductor makes multi-agent workflows — code review pipelines, research-then-s
 - **Parallel execution** - Run agents concurrently (static groups or dynamic for-each)
 - **Sub-workflow composition** - Reusable sub-workflows with templated `input_mapping`, usable inside `for_each` groups for dynamic fan-out
 - **Script steps** - Run shell commands and route on exit code or parsed JSON stdout
+- **Terminate steps** - Explicit terminal step with `status` (`success`/`failed`) and structured `reason` — distinguishable from the default `$end` path in CLI exit codes, dashboard state, and event logs
 - **Dialog mode** - Agents can pause for multi-turn conversation when uncertain
 - **Reasoning effort** - Unified `reasoning.effort` (low/medium/high/xhigh) per agent or workflow-wide, translated to each provider's native API
 - **Workspace instructions** - Auto-discover and inject `AGENTS.md` / `CLAUDE.md` / `.github/copilot-instructions.md` into every agent's prompt
@@ -300,6 +301,7 @@ See the [`examples/`](./examples/) directory for complete workflows:
 | [parallel-research.yaml](./examples/parallel-research.yaml) | Static parallel execution |
 | [design-review.yaml](./examples/design-review.yaml) | Human gate with loop pattern |
 | [script-step.yaml](./examples/script-step.yaml) | Script step with exit_code routing |
+| [terminate.yaml](./examples/terminate.yaml) | Explicit `type: terminate` with success and failure paths |
 
 **More examples and running instructions:** [examples/README.md](./examples/README.md)
 
